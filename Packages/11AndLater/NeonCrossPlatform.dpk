@@ -19,7 +19,7 @@
 {  limitations under the License.                                              }
 {                                                                              }
 {******************************************************************************}
-package Neon;
+package NeonCrossPlatform;
 
 {$R *.res}
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
@@ -47,9 +47,9 @@ package Neon;
 {$DEFINE DEBUG}
 {$ENDIF IMPLICITBUILDING}
 {$DESCRIPTION 'Neon Serialization Library'}
-{$LIBSUFFIX '280'}
+{$LIBSUFFIX AUTO}
 {$RUNONLY}
-{$IMPLICITBUILD OFF}
+{$IMPLICITBUILD ON}
 
 requires
   rtl,
@@ -67,7 +67,7 @@ contains
   Neon.Core.Serializers.Nullables in '..\..\Source\Neon.Core.Serializers.Nullables.pas',
   Neon.Core.TypeInfo in '..\..\Source\Neon.Core.TypeInfo.pas',
   Neon.Core.Types in '..\..\Source\Neon.Core.Types.pas',
-  Neon.Core.Utils in '..\..\Source\Neon.Core.Utils.pas';
+  Neon.Core.Utils in '..\..\Source\Neon.Core.Utils.pas',
+  Neon.Core.Tags in '..\..\Source\Neon.Core.Tags.pas';
 
 end.
-

@@ -837,7 +837,7 @@ begin
   end
   else
   begin
-    LName := TTypeInfoUtils.EnumToString(AValue.TypeInfo, AValue.AsOrdinal, ANeonObject);
+    LName := TTypeInfoUtils.EnumToString(AValue.TypeInfo, AValue.AsOrdinal);
     Result := TJSONString.Create(LName);
   end;
 end;
@@ -959,14 +959,14 @@ begin
     IncludeIf.Always, IncludeIf.CustomFunction:
     begin
       if ANullable.HasValue then
-        Result := WriteDataMember(ANullable.GetValue)
+        Result := WriteDataMember(ANullable.GetValue, True, ANeonObject)
       else
         Result := TJSONNull.Create;
     end;
     IncludeIf.NotNull, IncludeIf.NotEmpty, IncludeIf.NotDefault:
     begin
       if ANullable.HasValue then
-        Result := WriteDataMember(ANullable.GetValue);
+        Result := WriteDataMember(ANullable.GetValue, True, ANeonObject);
     end;
   end;
 end;
@@ -1740,6 +1740,8 @@ var
   LNullable: IDynamicNullable;
   LValue: TValue;
   LValueType: TRttiType;
+  LNewParam: TNeonDeserializerParam;
+  LNewData: TValue;
 begin
   Result := False;
   LNullable := TDynamicNullable.GuessType(AData);
@@ -1747,7 +1749,13 @@ begin
   begin
     Result := True;
     LValueType := TRttiUtils.Context.GetType(LNullable.GetValueType);
-    LValue := JSONToTValue(AParam.JSONValue, LValueType);
+
+    LNewParam.JSONValue := AParam.JSONValue;
+    LNewParam.NeonObject := AParam.NeonObject;
+    LNewParam.RttiType := LValueType;
+    LNewData := TValue.Empty.Cast(LValueType.Handle);
+    LValue := ReadDataMember(LNewParam, LNewData, False);
+
     LNullable.SetValue(LValue);
   end;
 end;
@@ -1908,12 +1916,10 @@ begin
 
   if AParam.JSONValue is TJSONString then
   begin
-    try
-      LDateTime := ISO8601ToDate(AParam.JSONValue.Value, FConfig.UseUTCDate);
+    if TryISO8601ToDate(AParam.JSONValue.Value, LDateTime, FConfig.UseUTCDate) then
       Exit(TValue.From<Variant>(VarFromDateTime(LDateTime)));
-    except
-      Exit(TValue.From<Variant>(AParam.JSONValue.Value));
-    end;
+
+    Exit(TValue.From<Variant>(AParam.JSONValue.Value));
   end;
 end;
 
@@ -1946,11 +1952,9 @@ end;
 procedure TNeonDeserializerJSON.JSONToObject(AObject: TObject; AJSON: TJSONValue);
 var
   LType: TRttiType;
-  LValue: TValue;
 begin
   FOriginalInstance := AObject;
   LType := TRttiUtils.Context.GetType(AObject.ClassType);
-  LValue := AObject;
   ReadDataMember(AJSON, LType, AObject);
 end;
 
@@ -2113,6 +2117,9 @@ class function TNeon.Print(AJSONValue: TJSONValue; APretty: Boolean): string;
 var
   LWriter: TStringWriter;
 begin
+  if not Assigned(AJSONValue) then
+    Exit('');
+
   LWriter := TStringWriter.Create;
   try
     TNeon.PrintToWriter(AJSONValue, LWriter, APretty{$IFDEF HAS_TOJSON_OPTIONS}, OUTPUT_DEFAULT{$ENDIF});
@@ -2127,6 +2134,9 @@ class function TNeon.Print(AJSONValue: TJSONValue; APretty: Boolean; AOutputOpti
 var
   LWriter: TStringWriter;
 begin
+  if not Assigned(AJSONValue) then
+    Exit('');
+
   LWriter := TStringWriter.Create;
   try
     TNeon.PrintToWriter(AJSONValue, LWriter, APretty, AOutputOptions);
@@ -2141,6 +2151,9 @@ class procedure TNeon.PrintToStream(AJSONValue: TJSONValue; AStream: TStream; AP
 var
   LWriter: TStreamWriter;
 begin
+  if not Assigned(AJSONValue) then
+    Exit;
+
   LWriter := TStreamWriter.Create(AStream);
   try
     TNeon.PrintToWriter(AJSONValue, LWriter, APretty{$IFDEF HAS_TOJSON_OPTIONS}, OUTPUT_DEFAULT{$ENDIF});
@@ -2154,6 +2167,9 @@ class procedure TNeon.PrintToStream(AJSONValue: TJSONValue; AStream: TStream; AP
 var
   LWriter: TStreamWriter;
 begin
+  if not Assigned(AJSONValue) then
+    Exit;
+
   LWriter := TStreamWriter.Create(AStream);
   try
     TNeon.PrintToWriter(AJSONValue, LWriter, APretty, AOutputOptions);
@@ -2167,16 +2183,6 @@ class procedure TNeon.PrintToWriter(AJSONValue: TJSONValue; AWriter: TTextWriter
   {$IFDEF HAS_TOJSON_OPTIONS}; AOutputOptions: TJSONAncestor.TJSONOutputOptions{$ENDIF});
 var
   LJSONString: string;
-  LChar: Char;
-  LOffset: Integer;
-  LIndex: Integer;
-  LOutsideString: Boolean;
-
-  function Spaces(AOffset: Integer): string;
-  begin
-    Result := StringOfChar(#32, AOffset * 2);
-  end;
-
 begin
 {$IFDEF HAS_TOJSON}
   {$IFDEF HAS_TOJSON_OPTIONS}
@@ -2193,58 +2199,7 @@ begin
     Exit;
   end;
 
-  LOffset := 0;
-  LOutsideString := True;
-
-  for LIndex := 0 to Length(LJSONString) - 1 do
-  begin
-    LChar := LJSONString.Chars[LIndex];
-
-    if LChar = '"' then
-      LOutsideString := not LOutsideString;
-
-    if LOutsideString and (LChar = '{') then
-    begin
-      Inc(LOffset);
-      AWriter.Write(LChar);
-      AWriter.Write(sLineBreak);
-      AWriter.Write(Spaces(LOffset));
-    end
-    else if LOutsideString and (LChar = '}') then
-    begin
-      Dec(LOffset);
-      AWriter.Write(sLineBreak);
-      AWriter.Write(Spaces(LOffset));
-      AWriter.Write(LChar);
-    end
-    else if LOutsideString and (LChar = ',') then
-    begin
-      AWriter.Write(LChar);
-      AWriter.Write(sLineBreak);
-      AWriter.Write(Spaces(LOffset));
-    end
-    else if LOutsideString and (LChar = '[') then
-    begin
-      Inc(LOffset);
-      AWriter.Write(LChar);
-      AWriter.Write(sLineBreak);
-      AWriter.Write(Spaces(LOffset));
-    end
-    else if LOutsideString and (LChar = ']') then
-    begin
-      Dec(LOffset);
-      AWriter.Write(sLineBreak);
-      AWriter.Write(Spaces(LOffset));
-      AWriter.Write(LChar);
-    end
-    else if LOutsideString and (LChar = ':') then
-    begin
-      AWriter.Write(LChar);
-      AWriter.Write(' ');
-    end
-    else
-      AWriter.Write(LChar);
-  end;
+  TJSONUtils.Prettify(LJSONString, AWriter);
 end;
 
 class function TNeon.ValueToJSON(const AValue: TValue): TJSONValue;
